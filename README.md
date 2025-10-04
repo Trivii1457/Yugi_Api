@@ -2,13 +2,6 @@
 
 Aplicación de escritorio en Java 11 que consume la API de YGOProDeck para recrear un duelo sencillo de Yu-Gi-Oh! como parte del laboratorio #1 de Desarrollo de Software III.
 
-## Ejecución
-
-```powershell
-cd Yugi_Oh\src
-javac -d ..\out (Get-ChildItem -Recurse -Filter *.java | ForEach-Object { $_.FullName })
-java -cp ..\out yugioh.Main
-```
 
 > **Nota:** Los comandos anteriores usan PowerShell (Windows). Si trabajas desde IntelliJ IDEA, configura la carpeta `Yugi_Oh/src` como *Sources Root* y ejecuta la clase `yugioh.Main`.
 
