@@ -173,8 +173,8 @@ public class Duel {
     List<Card> removedPlayers = new ArrayList<>();
     List<Card> removedAi = new ArrayList<>();
 
-    // randomly decide who attacks first this round
-    boolean playerAttacksFirst = random.nextBoolean();
+    // attacker for the round is determined by current playerTurn (randomly chosen at duel start, then alternates)
+    boolean playerAttacksFirst = playerTurn;
 
         if (playerAttacksFirst) {
             // Player chain: attacker is player's selected card

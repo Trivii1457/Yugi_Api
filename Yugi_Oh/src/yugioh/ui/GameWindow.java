@@ -258,9 +258,18 @@ public class GameWindow extends JFrame implements BattleListener {
         boolean ok = duel.setPlayerSelection(new CardSelection(card, position));
         if (ok) {
             appendLog("Selección registrada: " + card.getName() + " (" + position + ")");
-            // show selected in battle zone
+            // show selected in battle zone immediately
             playerBattleInfo.setText("Jugador: " + card.getName() + " (" + position + ")");
             loadImageAsync(card.getImageUrl(), playerBattleImage);
+            // reveal AI chosen card in bank and show it in battle zone immediately
+            var aiSel = duel.getPendingAiSelection();
+            if (aiSel != null) {
+                Card aiCard = aiSel.getCard();
+                CardPanel aiPanel = aiCardPanelMap.get(aiCard);
+                if (aiPanel != null) aiPanel.reveal();
+                aiBattleInfo.setText("IA: " + aiCard.getName() + " (" + aiSel.getPosition() + ")");
+                loadImageAsync(aiCard.getImageUrl(), aiBattleImage);
+            }
             // enable duel button so user can confirm
             duelButton.setEnabled(true);
         }
