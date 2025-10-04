@@ -2,9 +2,6 @@ package yugioh.api;
 
 import yugioh.model.Card;
 
-import javax.script.ScriptEngine;
-import javax.script.ScriptEngineManager;
-import javax.script.ScriptException;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -15,21 +12,21 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class YgoApiClient {
 
     private static final String BASE_URL = "https://db.ygoprodeck.com/api/v7";
-    private static final ScriptEngine ENGINE = new ScriptEngineManager().getEngineByName("javascript");
 
     private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
+        .connectTimeout(Duration.ofSeconds(10))
+        .followRedirects(HttpClient.Redirect.NORMAL)
+        .build();
 
     public Optional<Card> fetchCardByName(String cardName) throws IOException, InterruptedException {
         String encodedName = URLEncoder.encode(cardName, StandardCharsets.UTF_8);
@@ -63,94 +60,139 @@ public class YgoApiClient {
     }
 
     private String performRequest(String url) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .GET()
-                .timeout(Duration.ofSeconds(15))
-                .build();
+    HttpRequest request = HttpRequest.newBuilder()
+        .uri(URI.create(url))
+        .header("User-Agent", "YugiApiClient/1.0 (+https://example)")
+        .GET()
+        .timeout(Duration.ofSeconds(15))
+        .build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) {
             throw new IOException("No se pudo cargar la carta: HTTP " + response.statusCode());
         }
         return response.body();
     }
-
     private List<Card> parseCards(String json) throws IOException {
-        if (ENGINE == null) {
-            throw new IOException("Motor de JavaScript no disponible para parsear JSON");
+        // Find the "data" array and extract each JSON object within it.
+        int dataIndex = json.indexOf("\"data\"");
+        if (dataIndex < 0) {
+            return List.of();
         }
-        try {
-            Object raw;
-            synchronized (ENGINE) {
-                raw = ENGINE.eval("Java.asJSONCompatible(" + json + ")");
-            }
-            if (!(raw instanceof Map)) {
-                return List.of();
-            }
-            Map<?, ?> obj = (Map<?, ?>) raw;
-            Object dataObj = obj.get("data");
-            if (!(dataObj instanceof List)) {
-                return List.of();
-            }
-            List<?> data = (List<?>) dataObj;
-            List<Card> cards = new ArrayList<>();
-            for (Object item : data) {
-                if (!(item instanceof Map)) {
-                    continue;
-                }
-                Map<?, ?> cardMap = (Map<?, ?>) item;
-                Card card = mapToCard(cardMap);
-                if (card != null) {
-                    cards.add(card);
-                }
-            }
-            return cards;
-        } catch (ScriptException e) {
-            throw new IOException("Error parseando JSON", e);
+        int arrayStart = json.indexOf('[', dataIndex);
+        if (arrayStart < 0) {
+            return List.of();
         }
+        int idx = arrayStart + 1;
+        List<Card> cards = new ArrayList<>();
+        while (idx < json.length()) {
+            // skip whitespace
+            while (idx < json.length() && Character.isWhitespace(json.charAt(idx))) idx++;
+            if (idx >= json.length() || json.charAt(idx) == ']') break;
+            if (json.charAt(idx) != '{') {
+                idx++;
+                continue;
+            }
+            int depth = 0;
+            int objStart = idx;
+            while (idx < json.length()) {
+                char c = json.charAt(idx);
+                if (c == '{') depth++;
+                else if (c == '}') {
+                    depth--;
+                    if (depth == 0) {
+                        idx++; // include closing brace
+                        break;
+                    }
+                }
+                idx++;
+            }
+            if (depth != 0) break; // malformed
+            String objJson = json.substring(objStart, idx);
+            Card card = parseCardObject(objJson);
+            if (card != null) cards.add(card);
+            // skip commas/spaces
+            while (idx < json.length() && (Character.isWhitespace(json.charAt(idx)) || json.charAt(idx) == ',')) idx++;
+        }
+        return cards;
     }
 
-    private Card mapToCard(Map<?, ?> cardMap) {
-        Object idObj = cardMap.get("id");
-        int id = idObj instanceof Number ? ((Number) idObj).intValue() : 0;
-        String name = Objects.toString(cardMap.get("name"), "Desconocida");
-        String type = Objects.toString(cardMap.get("type"), "");
-        int atk = parseStat(cardMap.get("atk"));
-        int def = parseStat(cardMap.get("def"));
-        String desc = Objects.toString(cardMap.get("desc"), "");
-        String imageUrl = extractImageUrl(cardMap.get("card_images"));
+    private Card parseCardObject(String objJson) {
+        int id = extractInt(objJson, "\"id\"\s*:\s*(\\d+)", 0);
+        String name = extractString(objJson, "\"name\"\s*:\s*\"(.*?)\"");
+        if (name == null) name = "Desconocida";
+        String type = extractString(objJson, "\"type\"\s*:\s*\"(.*?)\"");
+        if (type == null) type = "";
+        int atk = extractInt(objJson, "\"atk\"\s*:\s*(null|\\d+)", 0);
+        int def = extractInt(objJson, "\"def\"\s*:\s*(null|\\d+)", 0);
+        String desc = extractString(objJson, "\"desc\"\s*:\s*\"(.*?)\"");
+        if (desc == null) desc = "";
+        String imageUrl = extractImageUrlFromObject(objJson);
         return new Card(id, name, type, atk, def, desc, imageUrl);
     }
 
-    private int parseStat(Object statObj) {
-        if (statObj instanceof Number number) {
-            return number.intValue();
-        }
-        try {
-            return statObj != null ? Integer.parseInt(statObj.toString()) : 0;
-        } catch (NumberFormatException e) {
-            return 0;
-        }
-    }
-
-    private String extractImageUrl(Object imagesObj) {
-        if (!(imagesObj instanceof List<?> images)) {
-            return "";
-        }
-        if (images.isEmpty()) {
-            return "";
-        }
-        Object first = images.get(0);
-        if (first instanceof Map<?, ?> map) {
-            Object url = map.get("image_url");
-            if (url != null) {
-                return url.toString();
+    private int extractInt(String json, String regex, int fallback) {
+        Pattern p = Pattern.compile(regex, Pattern.DOTALL);
+        Matcher m = p.matcher(json);
+        if (m.find()) {
+            String g = m.group(1);
+            if (g == null || g.equals("null")) return fallback;
+            try {
+                return Integer.parseInt(g);
+            } catch (NumberFormatException e) {
+                return fallback;
             }
         }
-        if (first instanceof LinkedHashMap) {
-            Object url = ((LinkedHashMap<?, ?>) first).get("image_url");
-            return url != null ? url.toString() : "";
+        return fallback;
+    }
+
+    private String extractString(String json, String regex) {
+        Pattern p = Pattern.compile(regex, Pattern.DOTALL);
+        Matcher m = p.matcher(json);
+        if (m.find()) {
+            String g = m.group(1);
+            return unescapeJsonString(g);
+        }
+        return null;
+    }
+
+    private String extractImageUrlFromObject(String objJson) {
+        // Find card_images array and then first image_url
+        int ci = objJson.indexOf("\"card_images\"");
+        if (ci < 0) return "";
+        int start = objJson.indexOf('[', ci);
+        if (start < 0) return "";
+        int idx = start + 1;
+        // find first object inside array
+        while (idx < objJson.length()) {
+            while (idx < objJson.length() && Character.isWhitespace(objJson.charAt(idx))) idx++;
+            if (idx >= objJson.length() || objJson.charAt(idx) == ']') break;
+            if (objJson.charAt(idx) != '{') { idx++; continue; }
+            int depth = 0;
+            int objStart = idx;
+            while (idx < objJson.length()) {
+                char c = objJson.charAt(idx);
+                if (c == '{') depth++;
+                else if (c == '}') {
+                    depth--;
+                    if (depth == 0) { idx++; break; }
+                }
+                idx++;
+            }
+            String firstImageObj = objJson.substring(objStart, idx);
+            String url = extractString(firstImageObj, "\"image_url\"\s*:\s*\"(.*?)\"");
+            return url == null ? "" : url;
         }
         return "";
+    }
+
+    private String unescapeJsonString(String s) {
+        if (s == null) return null;
+        // minimal unescape for common escapes
+        return s.replaceAll("\\\\\"", "\"")
+                .replaceAll("\\\\/", "/")
+                .replaceAll("\\\\n", "\n")
+                .replaceAll("\\\\r", "\r")
+                .replaceAll("\\\\t", "\t")
+                .replaceAll("\\\\\\\\", "\\");
     }
 }

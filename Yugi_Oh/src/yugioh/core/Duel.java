@@ -62,6 +62,10 @@ public class Duel {
         return Collections.unmodifiableList(playerAvailable);
     }
 
+    public List<Card> getAiAvailable() {
+        return Collections.unmodifiableList(aiAvailable);
+    }
+
     public synchronized void playRound(CardSelection playerSelection) {
         if (!active) {
             listener.onError("El duelo no está activo", null);
@@ -125,8 +129,14 @@ public class Duel {
         if (aiAvailable.isEmpty()) {
             return null;
         }
-        int idx = random.nextInt(aiAvailable.size());
-        return aiAvailable.get(idx);
+        // choose the available card with highest ATK
+        Card best = aiAvailable.get(0);
+        for (Card c : aiAvailable) {
+            if (c.getAtk() > best.getAtk()) {
+                best = c;
+            }
+        }
+        return best;
     }
 
     private int resolveBattle(CardSelection playerSelection, CardSelection aiSelection, boolean playerIsAttacker) {

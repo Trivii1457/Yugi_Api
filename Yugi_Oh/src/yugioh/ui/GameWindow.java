@@ -48,6 +48,7 @@ public class GameWindow extends JFrame implements BattleListener {
     private final ExecutorService executor = Executors.newFixedThreadPool(3);
 
     private final JPanel playerCardsPanel = new JPanel();
+    private final JPanel aiCardsPanel = new JPanel();
     private final JTextArea logArea = new JTextArea();
     private final JLabel statusLabel = new JLabel("Carga inicial pendiente");
     private final JLabel scoreLabel = new JLabel("Jugador 0 - 0 IA");
@@ -57,6 +58,14 @@ public class GameWindow extends JFrame implements BattleListener {
     private List<Card> playerCards = List.of();
     private List<Card> aiCards = List.of();
     private final Map<Card, CardPanel> cardPanelMap = new HashMap<>();
+    private final Map<Card, CardPanel> aiCardPanelMap = new HashMap<>();
+
+    // Battle zone components
+    private final JPanel battlePanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 40, 10));
+    private final JLabel playerBattleImage = new JLabel();
+    private final JLabel playerBattleInfo = new JLabel("Jugador: -");
+    private final JLabel aiBattleImage = new JLabel();
+    private final JLabel aiBattleInfo = new JLabel("IA: -");
 
     public GameWindow() {
         super("Duelo de Cartas - Laboratorio #1");
@@ -80,11 +89,37 @@ public class GameWindow extends JFrame implements BattleListener {
 
         add(topBar, BorderLayout.NORTH);
 
-        playerCardsPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 25, 15));
-        JScrollPane cardsScroll = new JScrollPane(playerCardsPanel);
-        cardsScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        cardsScroll.setPreferredSize(new Dimension(780, 550));
-        add(cardsScroll, BorderLayout.CENTER);
+    // center area: AI bank (top), battle zone (center), player bank (bottom)
+    JPanel center = new JPanel(new BorderLayout());
+
+    aiCardsPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 15, 10));
+    JScrollPane aiScroll = new JScrollPane(aiCardsPanel);
+    aiScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+    aiScroll.setPreferredSize(new Dimension(780, 180));
+    aiScroll.setBorder(BorderFactory.createTitledBorder("Banco IA"));
+    center.add(aiScroll, BorderLayout.NORTH);
+
+    // battle zone
+    battlePanel.setPreferredSize(new Dimension(780, 240));
+    JPanel playerBattlePanel = new JPanel(new BorderLayout());
+    playerBattlePanel.add(playerBattleImage, BorderLayout.CENTER);
+    playerBattlePanel.add(playerBattleInfo, BorderLayout.SOUTH);
+    JPanel aiBattlePanel = new JPanel(new BorderLayout());
+    aiBattlePanel.add(aiBattleImage, BorderLayout.CENTER);
+    aiBattlePanel.add(aiBattleInfo, BorderLayout.SOUTH);
+    battlePanel.add(playerBattlePanel);
+    battlePanel.add(aiBattlePanel);
+    battlePanel.setBorder(BorderFactory.createTitledBorder("Zona de pelea"));
+    center.add(battlePanel, BorderLayout.CENTER);
+
+    playerCardsPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 25, 15));
+    JScrollPane cardsScroll = new JScrollPane(playerCardsPanel);
+    cardsScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+    cardsScroll.setPreferredSize(new Dimension(780, 180));
+    cardsScroll.setBorder(BorderFactory.createTitledBorder("Banco Jugador"));
+    center.add(cardsScroll, BorderLayout.SOUTH);
+
+    add(center, BorderLayout.CENTER);
 
         logArea.setEditable(false);
         logArea.setLineWrap(true);
@@ -120,6 +155,7 @@ public class GameWindow extends JFrame implements BattleListener {
                     }
                     this.playerCards = hands.player;
                     this.aiCards = hands.ai;
+                    renderAiCards();
                     renderPlayerCards();
                     startNewDuel();
                 }));
@@ -156,7 +192,7 @@ public class GameWindow extends JFrame implements BattleListener {
         playerCardsPanel.removeAll();
         cardPanelMap.clear();
         for (Card card : playerCards) {
-            CardPanel panel = new CardPanel(card);
+            CardPanel panel = new CardPanel(card, true);
             cardPanelMap.put(card, panel);
             playerCardsPanel.add(panel);
         }
@@ -164,6 +200,20 @@ public class GameWindow extends JFrame implements BattleListener {
         playerCardsPanel.repaint();
         String names = playerCards.stream().map(Card::getName).collect(Collectors.joining(", "));
         appendLog("Cartas jugador: " + names);
+    }
+
+    private void renderAiCards() {
+        aiCardsPanel.removeAll();
+        aiCardPanelMap.clear();
+        for (Card card : aiCards) {
+            CardPanel panel = new CardPanel(card, false);
+            aiCardPanelMap.put(card, panel);
+            aiCardsPanel.add(panel);
+        }
+        aiCardsPanel.revalidate();
+        aiCardsPanel.repaint();
+        String names = aiCards.stream().map(Card::getName).collect(Collectors.joining(", "));
+        appendLog("Cartas IA: " + names);
     }
 
     private void onCardClicked(Card card) {
@@ -223,6 +273,15 @@ public class GameWindow extends JFrame implements BattleListener {
                     roundWinner
             );
             appendLog(message);
+            // update battle zone visuals
+            playerBattleInfo.setText("Jugador: " + playerSelection.getCard().getName() + " (" + playerSelection.getPosition() + ")");
+            aiBattleInfo.setText("IA: " + aiSelection.getCard().getName() + " (" + aiSelection.getPosition() + ")");
+            // load images
+            loadImageAsync(playerSelection.getCard().getImageUrl(), playerBattleImage);
+            loadImageAsync(aiSelection.getCard().getImageUrl(), aiBattleImage);
+            // mark AI card as used in its bank
+            CardPanel aiPanel = aiCardPanelMap.get(aiSelection.getCard());
+            if (aiPanel != null) aiPanel.markUsedExternally();
         });
     }
 
@@ -237,6 +296,7 @@ public class GameWindow extends JFrame implements BattleListener {
             appendLog("Duelo finalizado. Ganador: " + winner);
             statusLabel.setText("Ganador: " + winner);
             cardPanelMap.values().forEach(panel -> panel.setButtonEnabled(false));
+            aiCardPanelMap.values().forEach(panel -> panel.setButtonEnabled(false));
             reloadButton.setText("Nuevo duelo");
             reloadButton.setEnabled(true);
         });
@@ -287,7 +347,7 @@ public class GameWindow extends JFrame implements BattleListener {
         private final JLabel imageLabel = new JLabel();
         private boolean used;
 
-        CardPanel(Card card) {
+        CardPanel(Card card, boolean selectable) {
             this.card = card;
             setLayout(new BorderLayout(5, 5));
             setPreferredSize(new Dimension(220, 380));
@@ -312,8 +372,10 @@ public class GameWindow extends JFrame implements BattleListener {
             bottomPanel.add(stats);
             bottomPanel.add(Box.createVerticalStrut(10));
 
-            selectButton.addActionListener(e -> onCardClicked(this.card));
-            bottomPanel.add(selectButton);
+            if (selectable) {
+                selectButton.addActionListener(e -> onCardClicked(this.card));
+                bottomPanel.add(selectButton);
+            }
             add(bottomPanel, BorderLayout.SOUTH);
 
             loadImageAsync(card.getImageUrl(), imageLabel);
@@ -333,6 +395,11 @@ public class GameWindow extends JFrame implements BattleListener {
             if (!used) {
                 selectButton.setEnabled(enabled);
             }
+        }
+
+        void markUsedExternally() {
+            setUsed(true);
+            selectButton.setEnabled(false);
         }
     }
 
