@@ -100,18 +100,18 @@ public class GameWindow extends JFrame implements BattleListener {
 
         add(topBar, BorderLayout.NORTH);
 
-    // center area: AI bank (top), battle zone (center), player bank (bottom)
+    
     JPanel center = new JPanel(new BorderLayout());
 
     aiCardsPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 15, 10));
     JScrollPane aiScroll = new JScrollPane(aiCardsPanel);
     aiScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-    aiScroll.setPreferredSize(new Dimension(780, 180));
+    aiScroll.setPreferredSize(new Dimension(980, 240));
     aiScroll.setBorder(BorderFactory.createTitledBorder("Banco IA"));
     center.add(aiScroll, BorderLayout.NORTH);
 
     // battle zone
-    battlePanel.setPreferredSize(new Dimension(820, 260));
+    battlePanel.setPreferredSize(new Dimension(980, 340));
     JPanel playerBattlePanel = new JPanel(new BorderLayout());
     playerBattlePanel.add(playerBattleImage, BorderLayout.CENTER);
     playerBattlePanel.add(playerBattleInfo, BorderLayout.SOUTH);
@@ -126,7 +126,7 @@ public class GameWindow extends JFrame implements BattleListener {
     playerCardsPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 35, 20));
     JScrollPane cardsScroll = new JScrollPane(playerCardsPanel);
     cardsScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-    cardsScroll.setPreferredSize(new Dimension(780, 220));
+    cardsScroll.setPreferredSize(new Dimension(1080, 380));
     cardsScroll.setBorder(BorderFactory.createTitledBorder("Banco Jugador"));
     center.add(cardsScroll, BorderLayout.SOUTH);
 
@@ -322,6 +322,12 @@ public class GameWindow extends JFrame implements BattleListener {
             // mark AI card as used in its bank
             CardPanel aiPanel = aiCardPanelMap.get(aiSelection.getCard());
             if (aiPanel != null) aiPanel.markUsedExternally();
+            // mark player's card as used if it has been removed from available list
+            CardPanel playerPanel = cardPanelMap.get(playerSelection.getCard());
+            if (playerPanel != null) {
+                boolean stillAvailable = duel.getPlayerAvailable().contains(playerSelection.getCard());
+                if (!stillAvailable) playerPanel.markUsedExternally();
+            }
             // update per-card life displays
             aiCardPanelMap.forEach((c, p) -> {
                 if (duel != null) p.setLife(duel.getAiLife(c));
@@ -372,6 +378,25 @@ public class GameWindow extends JFrame implements BattleListener {
     }
 
     @Override
+    public void onCardsRemoved(java.util.List<Card> playerRemoved, java.util.List<Card> aiRemoved) {
+        SwingUtilities.invokeLater(() -> {
+            if (playerRemoved != null) {
+                for (Card c : playerRemoved) {
+                    CardPanel p = cardPanelMap.get(c);
+                    if (p != null) p.markUsedExternally();
+                }
+            }
+            if (aiRemoved != null) {
+                for (Card c : aiRemoved) {
+                    CardPanel p = aiCardPanelMap.get(c);
+                    if (p != null) p.markUsedExternally();
+                }
+            }
+            updateLivesDisplay();
+        });
+    }
+
+    @Override
     public void onError(String message, Throwable throwable) {
         SwingUtilities.invokeLater(() -> {
             appendLog("Error: " + message);
@@ -403,7 +428,7 @@ public class GameWindow extends JFrame implements BattleListener {
             if (image == null) {
                 return null;
             }
-            Image scaled = image.getScaledInstance(200, 300, Image.SCALE_SMOOTH);
+            Image scaled = image.getScaledInstance(280, 420, Image.SCALE_SMOOTH);
             return new javax.swing.ImageIcon(scaled);
         } catch (IOException e) {
             return null;
@@ -426,7 +451,7 @@ public class GameWindow extends JFrame implements BattleListener {
             this.card = card;
             this.faceDown = faceDown;
             setLayout(new BorderLayout(5, 5));
-                setPreferredSize(new Dimension(260, 440));
+                setPreferredSize(new Dimension(320, 540));
             setBorder(BorderFactory.createLineBorder(Color.ORANGE, 2));
 
             String title = faceDown ? "<html><center>Carta oculta</center></html>" : "<html><center>" + card.getName() + "</center></html>";
@@ -436,7 +461,7 @@ public class GameWindow extends JFrame implements BattleListener {
 
             imageLabel.setHorizontalAlignment(SwingConstants.CENTER);
             imageLabel.setVerticalAlignment(SwingConstants.CENTER);
-            imageLabel.setPreferredSize(new Dimension(240, 340));
+            imageLabel.setPreferredSize(new Dimension(200, 380));
             add(imageLabel, BorderLayout.CENTER);
 
             JTextArea stats = new JTextArea();

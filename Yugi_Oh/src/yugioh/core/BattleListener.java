@@ -14,8 +14,10 @@ public interface BattleListener {
     void onError(String message, Throwable throwable);
 
     /**
-     * Called when the duel requires the player to select a replacement monster because one of theirs was defeated.
-     * @param playerSide true if replacement is required from the human player, false if AI (unused currently)
+     * @param playerSide
      */
     void onReplacementRequested(boolean playerSide);
+
+
+    void onCardsRemoved(java.util.List<yugioh.model.Card> playerRemoved, java.util.List<yugioh.model.Card> aiRemoved);
 }
