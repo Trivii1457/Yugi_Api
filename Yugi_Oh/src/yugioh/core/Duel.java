@@ -24,6 +24,16 @@ public class Duel {
     private int aiScore;
     private boolean playerTurn;
     private boolean active;
+    // life maps for each monster (current remaining defense/vida)
+    private final java.util.Map<Card, Integer> playerLife = new java.util.LinkedHashMap<>();
+    private final java.util.Map<Card, Integer> aiLife = new java.util.LinkedHashMap<>();
+
+    // pending selections (set when player chooses a card)
+    private CardSelection pendingPlayerSelection;
+    private CardSelection pendingAiSelection;
+    // chain state for continued fights
+    private Card currentDefender;
+    private boolean waitingForPlayerReplacement = false;
 
     public Duel(List<Card> playerDeck, List<Card> aiDeck, BattleListener listener) {
         this.playerDeck = new ArrayList<>(Objects.requireNonNull(playerDeck));
@@ -44,6 +54,19 @@ public class Duel {
         this.playerTurn = random.nextBoolean();
         listener.onScoreChanged(playerScore, aiScore);
         listener.onDuelStarted(playerTurn ? "Jugador" : "IA");
+        // initialize life maps from DEF value (fallback to 100 if 0 or negative)
+        playerLife.clear();
+        aiLife.clear();
+        for (Card c : playerAvailable) {
+            int base = c.getDef() > 0 ? c.getDef() : 100;
+            int life = base + 1000; // new rule: vida = DEF + 1000
+            playerLife.put(c, life);
+        }
+        for (Card c : aiAvailable) {
+            int base = c.getDef() > 0 ? c.getDef() : 100;
+            int life = base + 1000; // new rule: vida = DEF + 1000
+            aiLife.put(c, life);
+        }
     }
 
     public boolean isActive() {
@@ -66,50 +89,198 @@ public class Duel {
         return Collections.unmodifiableList(aiAvailable);
     }
 
+    public int getPlayerLife(Card card) {
+        return playerLife.getOrDefault(card, 0);
+    }
+
+    public int getAiLife(Card card) {
+        return aiLife.getOrDefault(card, 0);
+    }
+
+    public int getPlayerRemainingLives() {
+        int count = 0;
+        for (Integer v : playerLife.values()) if (v > 0) count++;
+        return count;
+    }
+
+    public int getAiRemainingLives() {
+        int count = 0;
+        for (Integer v : aiLife.values()) if (v > 0) count++;
+        return count;
+    }
+
     public synchronized void playRound(CardSelection playerSelection) {
+        // legacy path: not used. New flow uses setPlayerSelection + resolvePendingRound
+        setPlayerSelection(playerSelection);
+    }
+
+    public synchronized boolean setPlayerSelection(CardSelection playerSelection) {
         if (!active) {
             listener.onError("El duelo no está activo", null);
-            return;
+            return false;
         }
         if (playerSelection == null || playerSelection.getCard() == null) {
             listener.onError("Debes seleccionar una carta válida", null);
-            return;
+            return false;
         }
         if (!playerAvailable.contains(playerSelection.getCard())) {
-            listener.onError("Esa carta ya fue usada en el duelo", null);
-            return;
+            listener.onError("Esa carta no está disponible", null);
+            return false;
         }
+        if (waitingForPlayerReplacement) {
+            // player is choosing a replacement after one of their monsters died
+            this.pendingPlayerSelection = playerSelection;
+            // keep defender unchanged; resolvePendingRound will use pendingPlayerSelection as attacker
+            this.waitingForPlayerReplacement = false;
+            return true;
+        }
+
+        // choose AI card to defend (highest ATK)
         Card aiCard = chooseAiCard();
         if (aiCard == null) {
             listener.onError("La IA no tiene cartas disponibles", null);
-            return;
+            return false;
         }
         CardPosition aiPosition = random.nextBoolean() ? CardPosition.ATTACK : CardPosition.DEFENSE;
-        CardSelection aiSelection = new CardSelection(aiCard, aiPosition);
+        this.pendingPlayerSelection = playerSelection;
+        this.pendingAiSelection = new CardSelection(aiCard, aiPosition);
+        // initialize chain state for a fresh exchange
+        this.currentDefender = aiCard;
+        this.waitingForPlayerReplacement = false;
+        return true;
+    }
 
-        boolean playerIsAttacker = playerTurn;
-        int outcome = resolveBattle(playerSelection, aiSelection, playerIsAttacker);
+    public synchronized CardSelection getPendingPlayerSelection() {
+        return pendingPlayerSelection;
+    }
 
-        if (outcome > 0) {
-            playerScore++;
-            listener.onTurnResolved(playerSelection, aiSelection, playerIsAttacker ? "Jugador" : "IA", "Jugador");
-        } else if (outcome < 0) {
-            aiScore++;
-            listener.onTurnResolved(playerSelection, aiSelection, playerIsAttacker ? "Jugador" : "IA", "IA");
-        } else {
-            listener.onTurnResolved(playerSelection, aiSelection, playerIsAttacker ? "Jugador" : "IA", "Empate");
+    public synchronized CardSelection getPendingAiSelection() {
+        return pendingAiSelection;
+    }
+
+    
+    public synchronized void resolvePendingRound() {
+        if (!active) return;
+        if (pendingPlayerSelection == null || pendingAiSelection == null) {
+            listener.onError("No hay una selección pendiente", null);
+            return;
+        }
+    Card playerCard = pendingPlayerSelection.getCard();
+
+        // Player chain: attacker is player's selected card
+    Card attacker = playerCard;
+        while (attacker != null && !aiAvailable.isEmpty()) {
+            Card defender = currentDefender != null ? currentDefender : chooseAiCard();
+            if (defender == null) break;
+            int atk = attacker.getAtk();
+            int defLife = aiLife.getOrDefault(defender, Math.max(defender.getDef(), 100));
+
+            if (atk > defLife) {
+                // attacker kills defender
+                aiAvailable.remove(defender);
+                aiLife.remove(defender);
+                playerScore++;
+                if (aiAvailable.isEmpty()) break;
+                currentDefender = chooseAiCard();
+            }
+
+            if (atk < defLife) {
+                // defender survives and loses life equal to atk
+                defLife -= atk;
+                aiLife.put(defender, defLife);
+                break;
+            }
+
+            // atk == defLife -> tie: random winner
+            boolean playerWins = random.nextBoolean();
+            if (playerWins) {
+                aiAvailable.remove(defender);
+                aiLife.remove(defender);
+                playerScore++;
+                if (aiAvailable.isEmpty()) break;
+                currentDefender = chooseAiCard();
+            } else {
+                // attacker dies
+                playerAvailable.remove(attacker);
+                playerLife.remove(attacker);
+                aiScore++;
+                if (!playerAvailable.isEmpty()) {
+                    waitingForPlayerReplacement = true;
+                    listener.onReplacementRequested(true);
+                }
+                // stop player's chain
+                break;
+            }
         }
 
+        // If waiting for replacement, notify and return (UI will call resolvePendingRound again after selection)
+        if (waitingForPlayerReplacement) {
+            listener.onScoreChanged(playerScore, aiScore);
+            return;
+        }
+
+        // AI chain: pick its best attacker and attack player's monsters
+        while (!aiAvailable.isEmpty() && !playerAvailable.isEmpty()) {
+            Card aiAttacker = chooseAiCard();
+            if (aiAttacker == null) break;
+            Card defender = playerAvailable.get(0);
+            int atk = aiAttacker.getAtk();
+            int defLife = playerLife.getOrDefault(defender, Math.max(defender.getDef(), 100));
+            if (atk > defLife) {
+                playerAvailable.remove(defender);
+                playerLife.remove(defender);
+                aiScore++;
+                // request replacement if player still has monsters
+                if (!playerAvailable.isEmpty()) {
+                    waitingForPlayerReplacement = true;
+                    listener.onReplacementRequested(true);
+                    break;
+                }
+            } else if (atk < defLife) {
+                defLife -= atk;
+                playerLife.put(defender, defLife);
+                break;
+            } else {
+                boolean aiWins = random.nextBoolean();
+                if (aiWins) {
+                    playerAvailable.remove(defender);
+                    playerLife.remove(defender);
+                    aiScore++;
+                    if (!playerAvailable.isEmpty()) {
+                        waitingForPlayerReplacement = true;
+                        listener.onReplacementRequested(true);
+                    }
+                    break;
+                } else {
+                    aiAvailable.remove(aiAttacker);
+                    aiLife.remove(aiAttacker);
+                    playerScore++;
+                    if (aiAvailable.isEmpty()) break;
+                }
+            }
+        }
+
+        // notify results of the exchange
+        String roundWinner;
+        if (playerScore > aiScore) roundWinner = "Jugador";
+        else if (aiScore > playerScore) roundWinner = "IA";
+        else roundWinner = "Empate";
+
+        listener.onTurnResolved(pendingPlayerSelection, pendingAiSelection, playerTurn ? "Jugador" : "IA", roundWinner);
         listener.onScoreChanged(playerScore, aiScore);
 
-        playerAvailable.remove(playerSelection.getCard());
-        aiAvailable.remove(aiCard);
+        // clear pending selections for next round
+        pendingPlayerSelection = null;
+        pendingAiSelection = null;
 
+        // check end condition
         if (playerScore >= 2 || aiScore >= 2 || playerAvailable.isEmpty() || aiAvailable.isEmpty()) {
             endDuel();
-        } else {
-            playerTurn = !playerTurn;
+            return;
         }
+
+        // toggle turn
+        playerTurn = !playerTurn;
     }
 
     private void endDuel() {
@@ -139,29 +310,5 @@ public class Duel {
         return best;
     }
 
-    private int resolveBattle(CardSelection playerSelection, CardSelection aiSelection, boolean playerIsAttacker) {
-        CardSelection attacker = playerIsAttacker ? playerSelection : aiSelection;
-        CardSelection defender = playerIsAttacker ? aiSelection : playerSelection;
-
-        int attackerValue = attacker.getPosition() == CardPosition.ATTACK ? attacker.getCard().getAtk() : attacker.getCard().getDef();
-        int defenderValue;
-        if (defender.getPosition() == CardPosition.ATTACK) {
-            defenderValue = defender.getCard().getAtk();
-        } else {
-            defenderValue = defender.getCard().getDef();
-        }
-
-        if (attacker.getPosition() == CardPosition.DEFENSE && defender.getPosition() == CardPosition.DEFENSE) {
-            return 0;
-        }
-
-        int comparison = Integer.compare(attackerValue, defenderValue);
-        if (comparison > 0) {
-            return playerIsAttacker ? 1 : -1;
-        }
-        if (comparison < 0) {
-            return playerIsAttacker ? -1 : 1;
-        }
-        return 0;
-    }
+    
 }

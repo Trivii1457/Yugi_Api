@@ -49,6 +49,8 @@ public class GameWindow extends JFrame implements BattleListener {
 
     private final JPanel playerCardsPanel = new JPanel();
     private final JPanel aiCardsPanel = new JPanel();
+    private final JLabel playerLivesLabel = new JLabel("Vidas jugador: 3");
+    private final JLabel aiLivesLabel = new JLabel("Vidas IA: 3");
     private final JTextArea logArea = new JTextArea();
     private final JLabel statusLabel = new JLabel("Carga inicial pendiente");
     private final JLabel scoreLabel = new JLabel("Jugador 0 - 0 IA");
@@ -66,6 +68,7 @@ public class GameWindow extends JFrame implements BattleListener {
     private final JLabel playerBattleInfo = new JLabel("Jugador: -");
     private final JLabel aiBattleImage = new JLabel();
     private final JLabel aiBattleInfo = new JLabel("IA: -");
+    private final JButton duelButton = new JButton("¡Duelar!");
 
     public GameWindow() {
         super("Duelo de Cartas - Laboratorio #1");
@@ -78,14 +81,22 @@ public class GameWindow extends JFrame implements BattleListener {
         setMinimumSize(new Dimension(1100, 700));
         setLocationRelativeTo(null);
 
-        JPanel topBar = new JPanel(new FlowLayout(FlowLayout.LEFT));
+    JPanel topBar = new JPanel(new FlowLayout(FlowLayout.LEFT));
         statusLabel.setFont(statusLabel.getFont().deriveFont(Font.BOLD));
         topBar.add(statusLabel);
         topBar.add(Box.createHorizontalStrut(20));
         topBar.add(scoreLabel);
+    topBar.add(Box.createHorizontalStrut(20));
+    topBar.add(playerLivesLabel);
+    topBar.add(Box.createHorizontalStrut(10));
+    topBar.add(aiLivesLabel);
         topBar.add(Box.createHorizontalStrut(20));
         reloadButton.addActionListener(e -> fetchHandsAsync());
         topBar.add(reloadButton);
+    duelButton.setEnabled(false);
+    duelButton.addActionListener(e -> onDuelButton());
+    topBar.add(Box.createHorizontalStrut(10));
+    topBar.add(duelButton);
 
         add(topBar, BorderLayout.NORTH);
 
@@ -100,7 +111,7 @@ public class GameWindow extends JFrame implements BattleListener {
     center.add(aiScroll, BorderLayout.NORTH);
 
     // battle zone
-    battlePanel.setPreferredSize(new Dimension(780, 240));
+    battlePanel.setPreferredSize(new Dimension(820, 260));
     JPanel playerBattlePanel = new JPanel(new BorderLayout());
     playerBattlePanel.add(playerBattleImage, BorderLayout.CENTER);
     playerBattlePanel.add(playerBattleInfo, BorderLayout.SOUTH);
@@ -112,10 +123,10 @@ public class GameWindow extends JFrame implements BattleListener {
     battlePanel.setBorder(BorderFactory.createTitledBorder("Zona de pelea"));
     center.add(battlePanel, BorderLayout.CENTER);
 
-    playerCardsPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 25, 15));
+    playerCardsPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 35, 20));
     JScrollPane cardsScroll = new JScrollPane(playerCardsPanel);
     cardsScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-    cardsScroll.setPreferredSize(new Dimension(780, 180));
+    cardsScroll.setPreferredSize(new Dimension(780, 220));
     cardsScroll.setBorder(BorderFactory.createTitledBorder("Banco Jugador"));
     center.add(cardsScroll, BorderLayout.SOUTH);
 
@@ -195,6 +206,7 @@ public class GameWindow extends JFrame implements BattleListener {
             CardPanel panel = new CardPanel(card, true);
             cardPanelMap.put(card, panel);
             playerCardsPanel.add(panel);
+            if (duel != null) panel.setLife(duel.getPlayerLife(card));
         }
         playerCardsPanel.revalidate();
         playerCardsPanel.repaint();
@@ -206,9 +218,11 @@ public class GameWindow extends JFrame implements BattleListener {
         aiCardsPanel.removeAll();
         aiCardPanelMap.clear();
         for (Card card : aiCards) {
-            CardPanel panel = new CardPanel(card, false);
+            // initially face-down: not selectable and hidden info
+            CardPanel panel = new CardPanel(card, false, true);
             aiCardPanelMap.put(card, panel);
             aiCardsPanel.add(panel);
+            if (duel != null) panel.setLife(duel.getAiLife(card));
         }
         aiCardsPanel.revalidate();
         aiCardsPanel.repaint();
@@ -241,10 +255,31 @@ public class GameWindow extends JFrame implements BattleListener {
             return;
         }
         CardPosition position = CardPosition.fromIndex(choice);
-        duel.playRound(new CardSelection(card, position));
-        if (!duel.getPlayerAvailable().contains(card)) {
-            panel.setUsed(true);
+        boolean ok = duel.setPlayerSelection(new CardSelection(card, position));
+        if (ok) {
+            appendLog("Selección registrada: " + card.getName() + " (" + position + ")");
+            // show selected in battle zone
+            playerBattleInfo.setText("Jugador: " + card.getName() + " (" + position + ")");
+            loadImageAsync(card.getImageUrl(), playerBattleImage);
+            // enable duel button so user can confirm
+            duelButton.setEnabled(true);
         }
+    }
+
+    private void onDuelButton() {
+        duelButton.setEnabled(false);
+        // resolve pending round
+        duel.resolvePendingRound();
+        // update lives display
+        updateLivesDisplay();
+        // mark player card used if depleted
+        // mark AI card used is done in onTurnResolved
+    }
+
+    private void updateLivesDisplay() {
+        if (duel == null) return;
+        playerLivesLabel.setText("Vidas jugador: " + duel.getPlayerRemainingLives());
+        aiLivesLabel.setText("Vidas IA: " + duel.getAiRemainingLives());
     }
 
     private void appendLog(String text) {
@@ -273,6 +308,11 @@ public class GameWindow extends JFrame implements BattleListener {
                     roundWinner
             );
             appendLog(message);
+            // also show as popup message
+            JOptionPane.showMessageDialog(this, message, "Resultado de turno", JOptionPane.INFORMATION_MESSAGE);
+            // reveal AI chosen card in its bank (was face-down)
+            CardPanel revealPanel = aiCardPanelMap.get(aiSelection.getCard());
+            if (revealPanel != null) revealPanel.reveal();
             // update battle zone visuals
             playerBattleInfo.setText("Jugador: " + playerSelection.getCard().getName() + " (" + playerSelection.getPosition() + ")");
             aiBattleInfo.setText("IA: " + aiSelection.getCard().getName() + " (" + aiSelection.getPosition() + ")");
@@ -282,6 +322,14 @@ public class GameWindow extends JFrame implements BattleListener {
             // mark AI card as used in its bank
             CardPanel aiPanel = aiCardPanelMap.get(aiSelection.getCard());
             if (aiPanel != null) aiPanel.markUsedExternally();
+            // update per-card life displays
+            aiCardPanelMap.forEach((c, p) -> {
+                if (duel != null) p.setLife(duel.getAiLife(c));
+            });
+            cardPanelMap.forEach((c, p) -> {
+                if (duel != null) p.setLife(duel.getPlayerLife(c));
+            });
+            updateLivesDisplay();
         });
     }
 
@@ -299,6 +347,27 @@ public class GameWindow extends JFrame implements BattleListener {
             aiCardPanelMap.values().forEach(panel -> panel.setButtonEnabled(false));
             reloadButton.setText("Nuevo duelo");
             reloadButton.setEnabled(true);
+            // popup final result
+            JOptionPane.showMessageDialog(this, "Duelo finalizado. Ganador: " + winner, "Fin del duelo", JOptionPane.INFORMATION_MESSAGE);
+        });
+    }
+
+    @Override
+    public void onReplacementRequested(boolean playerSide) {
+        SwingUtilities.invokeLater(() -> {
+            appendLog("Se requiere reemplazo de monstruo. Selecciona un monstruo disponible.");
+            statusLabel.setText("Selecciona reemplazo");
+            // enable only available player's cards
+            if (duel != null) {
+                for (var entry : cardPanelMap.entrySet()) {
+                    Card c = entry.getKey();
+                    var panel = entry.getValue();
+                    boolean available = duel.getPlayerAvailable().contains(c);
+                    panel.setButtonEnabled(available);
+                }
+            }
+            // inform user
+            JOptionPane.showMessageDialog(this, "Tu monstruo fue derrotado. Elige un reemplazo haciendo clic en una de tus cartas disponibles.", "Reemplazo requerido", JOptionPane.INFORMATION_MESSAGE);
         });
     }
 
@@ -343,22 +412,31 @@ public class GameWindow extends JFrame implements BattleListener {
 
     private class CardPanel extends JPanel {
         private final Card card;
-        private final JButton selectButton = new JButton("Elegir carta");
+    private final JButton selectButton = new JButton("Elegir carta");
         private final JLabel imageLabel = new JLabel();
         private boolean used;
+        private final JLabel lifeLabel;
+    private boolean faceDown = false;
 
         CardPanel(Card card, boolean selectable) {
+            this(card, selectable, false);
+        }
+
+        CardPanel(Card card, boolean selectable, boolean faceDown) {
             this.card = card;
+            this.faceDown = faceDown;
             setLayout(new BorderLayout(5, 5));
-            setPreferredSize(new Dimension(220, 380));
+                setPreferredSize(new Dimension(260, 440));
             setBorder(BorderFactory.createLineBorder(Color.ORANGE, 2));
 
-            JLabel nameLabel = new JLabel("<html><center>" + card.getName() + "</center></html>", SwingConstants.CENTER);
+            String title = faceDown ? "<html><center>Carta oculta</center></html>" : "<html><center>" + card.getName() + "</center></html>";
+            JLabel nameLabel = new JLabel(title, SwingConstants.CENTER);
             nameLabel.setFont(nameLabel.getFont().deriveFont(Font.BOLD, 15f));
             add(nameLabel, BorderLayout.NORTH);
 
             imageLabel.setHorizontalAlignment(SwingConstants.CENTER);
             imageLabel.setVerticalAlignment(SwingConstants.CENTER);
+            imageLabel.setPreferredSize(new Dimension(240, 340));
             add(imageLabel, BorderLayout.CENTER);
 
             JTextArea stats = new JTextArea();
@@ -366,6 +444,9 @@ public class GameWindow extends JFrame implements BattleListener {
             stats.setOpaque(false);
             stats.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
             stats.setText(String.format("ATK: %d%nDEF: %d%nTipo: %s", card.getAtk(), card.getDef(), card.getType()));
+
+            this.lifeLabel = new JLabel("Vida: " + card.getDef());
+            lifeLabel.setFont(lifeLabel.getFont().deriveFont(Font.PLAIN, 12f));
 
             JPanel bottomPanel = new JPanel();
             bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.Y_AXIS));
@@ -376,15 +457,40 @@ public class GameWindow extends JFrame implements BattleListener {
                 selectButton.addActionListener(e -> onCardClicked(this.card));
                 bottomPanel.add(selectButton);
             }
+            if (faceDown) {
+                // hide image and stats when face-down
+                imageLabel.setText("Carta oculta");
+                stats.setText(" ");
+                lifeLabel.setText("Vida: ?");
+            }
+            bottomPanel.add(Box.createVerticalStrut(6));
+            bottomPanel.add(lifeLabel);
             add(bottomPanel, BorderLayout.SOUTH);
+            if (!faceDown) {
+                loadImageAsync(card.getImageUrl(), imageLabel);
+            }
+        }
 
+        void reveal() {
+            if (!faceDown) return;
+            faceDown = false;
+            // show image and info
             loadImageAsync(card.getImageUrl(), imageLabel);
+            // update title and stats
+            // rebuild bottom panel life/stats (simple approach: set life label text)
+            lifeLabel.setText("Vida: " + (duel != null ? duel.getAiLife(card) : card.getDef()));
+            repaint();
         }
 
         void setUsed(boolean used) {
             this.used = used;
             selectButton.setEnabled(!used);
             setBorder(BorderFactory.createLineBorder(used ? Color.GRAY : Color.ORANGE, used ? 1 : 2));
+        }
+
+        void setLife(int life) {
+            lifeLabel.setText("Vida: " + life);
+            repaint();
         }
 
         boolean isUsed() {
