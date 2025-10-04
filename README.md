@@ -3,7 +3,7 @@
 Aplicación de escritorio en Java 11 que consume la API de YGOProDeck para recrear un duelo sencillo de Yu-Gi-Oh! como parte del laboratorio #1 de Desarrollo de Software III.
 
 
-###Ejecuta la clase `yugioh.Main`.
+### Ejecuta la clase `yugioh.Main`.
 
 ## Diseño
 
