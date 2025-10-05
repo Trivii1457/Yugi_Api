@@ -20,4 +20,6 @@ public interface BattleListener {
 
 
     void onCardsRemoved(java.util.List<yugioh.model.Card> playerRemoved, java.util.List<yugioh.model.Card> aiRemoved);
+
+    void onAiSelectedFirst(CardSelection aiSelection);
 }

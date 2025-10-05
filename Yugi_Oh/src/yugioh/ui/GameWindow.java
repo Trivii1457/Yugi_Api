@@ -30,7 +30,7 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
-import java.net.URL;
+import java.net.URI;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +43,17 @@ import java.util.stream.Collectors;
 public class GameWindow extends JFrame implements BattleListener {
 
     private static final int STARTING_HAND = 3;
+
+    // Colores temáticos de Yu-Gi-Oh mejorados para mejor contraste
+    private static final Color DARK_BLUE = new Color(0x0d1117);      // Más oscuro para mejor contraste
+    private static final Color PURPLE = new Color(0x161b22);         // Gris oscuro profesional
+    private static final Color GOLD = new Color(0xffd700);
+    private static final Color LIGHT_BLUE = new Color(0x58a6ff);     // Azul más claro y vibrante
+    private static final Color DARK_RED = new Color(0xf85149);       // Rojo más vibrante
+    private static final Color CARD_BORDER = new Color(0xf78166);    // Naranja más suave
+    private static final Color AI_CARD_BORDER = new Color(0xa5a5a5); // Gris claro para IA
+    private static final Color TEXT_PRIMARY = new Color(0xf0f6fc);   // Blanco casi puro
+    private static final Color TEXT_SECONDARY = new Color(0xc9d1d9); // Gris claro
 
     private final YgoApiClient apiClient = new YgoApiClient();
     private final ExecutorService executor = Executors.newFixedThreadPool(3);
@@ -71,63 +82,127 @@ public class GameWindow extends JFrame implements BattleListener {
     private final JButton duelButton = new JButton("¡Duelar!");
 
     public GameWindow() {
-        super("Duelo de Cartas - Laboratorio #1");
+        super("🎴 Yu-Gi-Oh! Duel Arena - Laboratorio DS3");
+        setupTheme();
         configureLayout();
         registerListeners();
     }
 
-    private void configureLayout() {
+    private void setupTheme() {
+        // Configurar el fondo oscuro y tema general
+        getContentPane().setBackground(DARK_BLUE);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setMinimumSize(new Dimension(1100, 700));
+        // Maximizar ventana para aprovechar toda la pantalla
+        setExtendedState(JFrame.MAXIMIZED_BOTH);
+        setMinimumSize(new Dimension(1200, 800));
         setLocationRelativeTo(null);
+    }
 
-    JPanel topBar = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.BOLD));
+    private void configureLayout() {
+        JPanel topBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 10));
+        topBar.setBackground(PURPLE);
+        topBar.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 0, 3, 0, GOLD),
+            BorderFactory.createEmptyBorder(5, 10, 5, 10)
+        ));
+
+        // Etiquetas con estilo mejorado
+        statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        statusLabel.setForeground(GOLD);
+        statusLabel.setText("⚡ Preparando duelo...");
+
+        scoreLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        scoreLabel.setForeground(TEXT_PRIMARY);
+
+        playerLivesLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        playerLivesLabel.setForeground(LIGHT_BLUE);
+
+        aiLivesLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        aiLivesLabel.setForeground(TEXT_SECONDARY);
+
+        // Botón de recarga estilizado
+        styleButton(reloadButton, GOLD, DARK_BLUE);
+        reloadButton.setText("🎲 Cargar Cartas");
+        reloadButton.addActionListener(e -> fetchHandsAsync());
+
+        // Botón de duelo
+        styleButton(duelButton, GOLD, Color.BLACK);  // Dorado con texto negro para mejor visibilidad
+        duelButton.setText("⚔️ Duelar");
+        duelButton.setEnabled(false);
+        duelButton.addActionListener(e -> onDuelButton());
+
         topBar.add(statusLabel);
         topBar.add(Box.createHorizontalStrut(20));
         topBar.add(scoreLabel);
-    topBar.add(Box.createHorizontalStrut(20));
-    topBar.add(playerLivesLabel);
-    topBar.add(Box.createHorizontalStrut(10));
-    topBar.add(aiLivesLabel);
         topBar.add(Box.createHorizontalStrut(20));
-        reloadButton.addActionListener(e -> fetchHandsAsync());
+        topBar.add(playerLivesLabel);
+        topBar.add(Box.createHorizontalStrut(10));
+        topBar.add(aiLivesLabel);
+        topBar.add(Box.createHorizontalStrut(20));
         topBar.add(reloadButton);
-    duelButton.setEnabled(false);
-    duelButton.addActionListener(e -> onDuelButton());
-    topBar.add(Box.createHorizontalStrut(10));
-    topBar.add(duelButton);
+        topBar.add(Box.createHorizontalStrut(10));
+        topBar.add(duelButton);
 
         add(topBar, BorderLayout.NORTH);
 
     
     JPanel center = new JPanel(new BorderLayout());
+    center.setBackground(DARK_BLUE);
 
     aiCardsPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 15, 10));
+    aiCardsPanel.setBackground(PURPLE);
     JScrollPane aiScroll = new JScrollPane(aiCardsPanel);
     aiScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-    aiScroll.setPreferredSize(new Dimension(980, 240));
-    aiScroll.setBorder(BorderFactory.createTitledBorder("Banco IA"));
+    aiScroll.setPreferredSize(new Dimension(980, 220));
+    aiScroll.setBorder(BorderFactory.createTitledBorder(
+        BorderFactory.createLineBorder(AI_CARD_BORDER, 2),
+        "🤖 Cartas IA",
+        0, 0,
+        new Font("Segoe UI", Font.BOLD, 12),
+        TEXT_PRIMARY
+    ));
+    aiScroll.getViewport().setBackground(PURPLE);
     center.add(aiScroll, BorderLayout.NORTH);
 
-    // battle zone
+    // Zona de batalla con mejor estilo
+    battlePanel.setBackground(DARK_BLUE);
     battlePanel.setPreferredSize(new Dimension(980, 340));
     JPanel playerBattlePanel = new JPanel(new BorderLayout());
+    playerBattlePanel.setBackground(PURPLE);
+    playerBattlePanel.setBorder(BorderFactory.createLineBorder(LIGHT_BLUE, 2));
     playerBattlePanel.add(playerBattleImage, BorderLayout.CENTER);
     playerBattlePanel.add(playerBattleInfo, BorderLayout.SOUTH);
+    
     JPanel aiBattlePanel = new JPanel(new BorderLayout());
+    aiBattlePanel.setBackground(PURPLE);
+    aiBattlePanel.setBorder(BorderFactory.createLineBorder(DARK_RED, 2));
     aiBattlePanel.add(aiBattleImage, BorderLayout.CENTER);
     aiBattlePanel.add(aiBattleInfo, BorderLayout.SOUTH);
+    
     battlePanel.add(playerBattlePanel);
     battlePanel.add(aiBattlePanel);
-    battlePanel.setBorder(BorderFactory.createTitledBorder("Zona de pelea"));
+    battlePanel.setBorder(BorderFactory.createTitledBorder(
+        BorderFactory.createLineBorder(GOLD, 3),
+        "⚔️ Zona de Batalla",
+        0, 0,
+        new Font("Segoe UI", Font.BOLD, 16),
+        GOLD
+    ));
     center.add(battlePanel, BorderLayout.CENTER);
 
-    playerCardsPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 35, 20));
+    playerCardsPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 20, 15));
+    playerCardsPanel.setBackground(DARK_BLUE);
     JScrollPane cardsScroll = new JScrollPane(playerCardsPanel);
     cardsScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-    cardsScroll.setPreferredSize(new Dimension(1080, 380));
-    cardsScroll.setBorder(BorderFactory.createTitledBorder("Banco Jugador"));
+    cardsScroll.setPreferredSize(new Dimension(1080, 300));  // Menos altura ya que las cartas son más pequeñas
+    cardsScroll.setBorder(BorderFactory.createTitledBorder(
+        BorderFactory.createLineBorder(CARD_BORDER, 2),
+        "🧙‍♂️ Tus Cartas",
+        0, 0,
+        new Font("Segoe UI", Font.BOLD, 14),
+        TEXT_PRIMARY
+    ));
+    cardsScroll.getViewport().setBackground(DARK_BLUE);
     center.add(cardsScroll, BorderLayout.SOUTH);
 
     add(center, BorderLayout.CENTER);
@@ -135,13 +210,37 @@ public class GameWindow extends JFrame implements BattleListener {
         logArea.setEditable(false);
         logArea.setLineWrap(true);
         logArea.setWrapStyleWord(true);
-        logArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+        logArea.setFont(new Font("Consolas", Font.PLAIN, 12));
+        logArea.setBackground(DARK_BLUE);
+        logArea.setForeground(TEXT_PRIMARY);
+        logArea.setCaretColor(GOLD);
+        
         JScrollPane logScroll = new JScrollPane(logArea);
-        logScroll.setPreferredSize(new Dimension(300, 550));
-        logScroll.setBorder(BorderFactory.createTitledBorder("Registro de duelo"));
+        logScroll.setPreferredSize(new Dimension(350, 600));
+        logScroll.setBorder(BorderFactory.createTitledBorder(
+            BorderFactory.createLineBorder(GOLD, 2),
+            "📜 Registro de Duelo",
+            0, 0,
+            new Font("Segoe UI", Font.BOLD, 14),
+            GOLD
+        ));
+        logScroll.getViewport().setBackground(DARK_BLUE);
         add(logScroll, BorderLayout.EAST);
 
-        appendLog("Presiona 'Cargar cartas' para preparar el duelo.");
+        appendLog("🎮 ¡Bienvenido al Duel Arena!");
+        appendLog("💫 Presiona 'Cargar Cartas' para comenzar tu aventura.");
+    }
+
+    private void styleButton(JButton button, Color bgColor, Color textColor) {
+        button.setBackground(bgColor);
+        button.setForeground(textColor);
+        button.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        button.setFocusPainted(false);
+        button.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createRaisedBevelBorder(),
+            BorderFactory.createEmptyBorder(8, 15, 8, 15)
+        ));
+        button.setOpaque(true);
     }
 
     private void registerListeners() {
@@ -206,7 +305,6 @@ public class GameWindow extends JFrame implements BattleListener {
             CardPanel panel = new CardPanel(card, true);
             cardPanelMap.put(card, panel);
             playerCardsPanel.add(panel);
-            if (duel != null) panel.setLife(duel.getPlayerLife(card));
         }
         playerCardsPanel.revalidate();
         playerCardsPanel.repaint();
@@ -222,7 +320,6 @@ public class GameWindow extends JFrame implements BattleListener {
             CardPanel panel = new CardPanel(card, false, true);
             aiCardPanelMap.put(card, panel);
             aiCardsPanel.add(panel);
-            if (duel != null) panel.setLife(duel.getAiLife(card));
         }
         aiCardsPanel.revalidate();
         aiCardsPanel.repaint();
@@ -338,12 +435,6 @@ public class GameWindow extends JFrame implements BattleListener {
                 if (!stillAvailable) playerPanel.markUsedExternally();
             }
             // update per-card life displays
-            aiCardPanelMap.forEach((c, p) -> {
-                if (duel != null) p.setLife(duel.getAiLife(c));
-            });
-            cardPanelMap.forEach((c, p) -> {
-                if (duel != null) p.setLife(duel.getPlayerLife(c));
-            });
             updateLivesDisplay();
         });
     }
@@ -413,6 +504,22 @@ public class GameWindow extends JFrame implements BattleListener {
         });
     }
 
+    @Override
+    public void onAiSelectedFirst(CardSelection aiSelection) {
+        SwingUtilities.invokeLater(() -> {
+            // Mostrar la selección de la IA en la zona de batalla
+            aiBattleInfo.setText("🤖 " + aiSelection.getCard().getName() + " (" + aiSelection.getPosition() + ")");
+            loadImageAsync(aiSelection.getCard().getImageUrl(), aiBattleImage);
+            // Revelar la carta de la IA en su banco
+            CardPanel aiPanel = aiCardPanelMap.get(aiSelection.getCard());
+            if (aiPanel != null) aiPanel.reveal();
+            // Informar al jugador que ahora debe responder
+            appendLog("🤖 IA seleccionó: " + aiSelection.getCard().getName() + " (" + aiSelection.getPosition() + ")");
+            appendLog("🧙‍♂️ Tu turno: selecciona tu carta para responder");
+            statusLabel.setText("⚡ Tu turno - La IA ya seleccionó");
+        });
+    }
+
     private void loadImageAsync(String url, JLabel target) {
         if (url == null || url.isBlank()) {
             target.setText("Sin imagen");
@@ -433,11 +540,12 @@ public class GameWindow extends JFrame implements BattleListener {
 
     private javax.swing.ImageIcon fetchImage(String url) {
         try {
-            BufferedImage image = ImageIO.read(new URL(url));
+            BufferedImage image = ImageIO.read(URI.create(url).toURL());
             if (image == null) {
                 return null;
             }
-            Image scaled = image.getScaledInstance(280, 420, Image.SCALE_SMOOTH);
+            // Escalar imagen a tamaño más pequeño y apropiado
+            Image scaled = image.getScaledInstance(160, 240, Image.SCALE_SMOOTH);
             return new javax.swing.ImageIcon(scaled);
         } catch (IOException e) {
             return null;
@@ -449,7 +557,6 @@ public class GameWindow extends JFrame implements BattleListener {
     private final JButton selectButton = new JButton("Elegir carta");
         private final JLabel imageLabel = new JLabel();
         private boolean used;
-        private final JLabel lifeLabel;
     private boolean faceDown = false;
 
         CardPanel(Card card, boolean selectable) {
@@ -460,8 +567,9 @@ public class GameWindow extends JFrame implements BattleListener {
             this.card = card;
             this.faceDown = faceDown;
             setLayout(new BorderLayout(5, 5));
-                setPreferredSize(new Dimension(320, 540));
-            setBorder(BorderFactory.createLineBorder(Color.ORANGE, 2));
+            setPreferredSize(new Dimension(240, 350));  // Más pequeñas para que se vean completas
+            setBackground(PURPLE);
+            setBorder(BorderFactory.createLineBorder(CARD_BORDER, 2));
 
             String title = faceDown ? "<html><center>Carta oculta</center></html>" : "<html><center>" + card.getName() + "</center></html>";
             JLabel nameLabel = new JLabel(title, SwingConstants.CENTER);
@@ -470,7 +578,9 @@ public class GameWindow extends JFrame implements BattleListener {
 
             imageLabel.setHorizontalAlignment(SwingConstants.CENTER);
             imageLabel.setVerticalAlignment(SwingConstants.CENTER);
-            imageLabel.setPreferredSize(new Dimension(200, 380));
+            imageLabel.setPreferredSize(new Dimension(160, 240));  // Más pequeña pero proporcional
+            imageLabel.setOpaque(true);
+            imageLabel.setBackground(DARK_BLUE);
             add(imageLabel, BorderLayout.CENTER);
 
             JTextArea stats = new JTextArea();
@@ -478,9 +588,6 @@ public class GameWindow extends JFrame implements BattleListener {
             stats.setOpaque(false);
             stats.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
             stats.setText(String.format("ATK: %d%nDEF: %d%nTipo: %s", card.getAtk(), card.getDef(), card.getType()));
-
-            this.lifeLabel = new JLabel("Vida: " + card.getDef());
-            lifeLabel.setFont(lifeLabel.getFont().deriveFont(Font.PLAIN, 12f));
 
             JPanel bottomPanel = new JPanel();
             bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.Y_AXIS));
@@ -495,10 +602,8 @@ public class GameWindow extends JFrame implements BattleListener {
                 // hide image and stats when face-down
                 imageLabel.setText("Carta oculta");
                 stats.setText(" ");
-                lifeLabel.setText("Vida: ?");
             }
             bottomPanel.add(Box.createVerticalStrut(6));
-            bottomPanel.add(lifeLabel);
             add(bottomPanel, BorderLayout.SOUTH);
             if (!faceDown) {
                 loadImageAsync(card.getImageUrl(), imageLabel);
@@ -512,7 +617,6 @@ public class GameWindow extends JFrame implements BattleListener {
             loadImageAsync(card.getImageUrl(), imageLabel);
             // update title and stats
             // rebuild bottom panel life/stats (simple approach: set life label text)
-            lifeLabel.setText("Vida: " + (duel != null ? duel.getAiLife(card) : card.getDef()));
             repaint();
         }
 
@@ -520,11 +624,6 @@ public class GameWindow extends JFrame implements BattleListener {
             this.used = used;
             selectButton.setEnabled(!used);
             setBorder(BorderFactory.createLineBorder(used ? Color.GRAY : Color.ORANGE, used ? 1 : 2));
-        }
-
-        void setLife(int life) {
-            lifeLabel.setText("Vida: " + life);
-            repaint();
         }
 
         boolean isUsed() {
