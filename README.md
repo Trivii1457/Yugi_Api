@@ -21,4 +21,20 @@ Aplicación de escritorio en Java 11 que consume la API de YGOProDeck para recre
 
 ## Capturas
 
-Incluye tus capturas de pantalla en la carpeta `docs/` o directamente en esta sección cuando las tengas listas (por ejemplo, `![Duelo](docs/duelo.png)`).
+## Inicio
+![Inicio](docs/Incio.png)
+
+## Cargar cartas
+![Cargar cartas](docs/Cargar-Cartas.png)
+
+## Posición de batalla
+![Posición de batalla](docs/Posicion-de-Batalla.png)
+
+## Duelo
+![Duelo](docs/Duelo.png)
+
+## Final del duelo
+![Final del duelo](docs/Final-De-Duelo.png)
+
+---
+
